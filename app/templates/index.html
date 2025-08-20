@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pencarian Ayat Qur'an Hybrid</title>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --primary-hover: #0056b3;
+            --success-color: #28a745;
+            --success-hover: #218838;
+            --danger-color: #dc3545;
+            --light-bg: #f8f9fa;
+            --border-color: #dee2e6;
+            --text-color: #212529;
+            --card-bg: #ffffff;
+            --shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--light-bg);
+            color: var(--text-color);
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        .container {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+        h1, h2, h3 {
+            border-bottom: 2px solid #eef;
+            padding-bottom: 10px;
+            color: var(--primary-hover);
+        }
+        h3 {
+            color: #17a2b8; margin-top: 30px;
+        }
+        .control-section {
+            border: 1px dashed var(--border-color);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        textarea, input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            font-size: 16px;
+            box-sizing: border-box; /* Penting */
+        }
+        textarea {
+            resize: vertical; min-height: 80px; margin-bottom: 10px;
+        }
+        button {
+            width: 100%;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            transition: background-color 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        #textSearchButton { background-color: var(--primary-color); }
+        #textSearchButton:hover { background-color: var(--primary-hover); }
+        #recordButton { background-color: var(--success-color); }
+        #recordButton.recording {
+            background-color: var(--danger-color);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+        }
+        #status, #textStatus {
+            font-weight: bold; text-align: center; height: 20px; margin-top: 10px;
+        }
+        #results-container { margin-top: 30px; }
+        .query-box {
+            background-color: #eef7ff;
+            border: 1px solid #d1e7fd;
+            padding: 15px; margin-bottom: 20px; border-radius: 5px;
+        }
+        .result-item {
+            background-color: #fdfdfe;
+            border-left: 5px solid var(--primary-color);
+            padding: 15px; margin-bottom: 15px; border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .arabic-text {
+            font-size: 1.6em; line-height: 1.8; direction: rtl; text-align: right;
+            font-family: 'Amiri', 'Noto Naskh Arabic', serif;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@700&family=Noto+Naskh+Arabic:wght@700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <h1>Pencarian Ayat Qur'an</h1>
+        <p>Gunakan suara atau teks untuk menemukan ayat Al-Qur'an secara interaktif.</p>
+
+        <!-- Bagian Input Teks -->
+        <h3>Pencarian via Teks</h3>
+        <div class="control-section">
+            <textarea id="textQuery" placeholder="Ketik transliterasi Arab di sini... (Contoh: Bismillah hirrohman nirrohim)"></textarea>
+            <button id="textSearchButton">Cari Teks</button>
+            <div id="textStatus"></div>
+        </div>
+        
+        <!-- Bagian Input Audio Real-time -->
+        <h3>Pencarian via Suara</h3>
+        <div class="control-section">
+            <button id="recordButton">Mulai Merekam</button>
+            <div id="status">Status: Menunggu</div>
+        </div>
+
+        <!-- Wadah untuk menampilkan semua hasil -->
+        <div id="results-container"></div>
+    </div>
+
+    <script>
+    // === Selektor DOM ===
+    const textQueryInput = document.getElementById('textQuery');
+    const textSearchButton = document.getElementById('textSearchButton');
+    const textStatusEl = document.getElementById('textStatus');
+    
+    const recordButton = document.getElementById('recordButton');
+    const statusEl = document.getElementById('status');
+    const resultsContainer = document.getElementById('results-container');
+    
+    // === State untuk Perekaman ===
+    let isRecording = false;
+    let mediaRecorder;
+    let audioChunks = [];
+    let mediaStream;
+
+    // === Fungsi Tampilan (Reusable) ===
+    function showLoading(element, message) {
+        element.textContent = message;
+        element.style.color = '#555';
+    }
+
+    function showError(element, message) {
+        element.textContent = `Error: ${message}`;
+        element.style.color = 'var(--danger-color)';
+    }
+
+    function clearStatus(element) {
+        element.textContent = '';
+    }
+
+    function renderResults(data, container) {
+        container.innerHTML = ''; // Hapus hasil sebelumnya
+        
+        let queryBoxHtml = '';
+        if (data.transcription) { // Hasil dari Audio
+            queryBoxHtml = `
+                <div class="query-box">
+                    <h3>Hasil Analisis Audio</h3>
+                    <p><strong>Teks Arab:</strong></p>
+                    <p class="arabic-text">${data.transcription.arabic}</p>
+                    <hr>
+                    <p><strong>Query Pencarian (Latin):</strong> <em>"${data.transcription.latin}"</em></p>
+                </div>`;
+        } else { // Hasil dari Teks
+            queryBoxHtml = `
+                <div class="query-box">
+                    <h3>Hasil Analisis Teks</h3>
+                    <p><strong>Query Pencarian Digunakan:</strong> <em>"${data.query}"</em></p>
+                </div>`;
+        }
+
+        let searchResultsHtml = '<h2>Hasil Pencocokan Ayat</h2>';
+        if (data.search && data.search.length > 0) {
+            data.search.forEach(item => {
+                searchResultsHtml += `
+                    <div class="result-item">
+                        <h4>Surat ${item.surah} Ayat ${item.ayah}</h4>
+                        <p class="arabic-text">${item.arabic}</p>
+                        <p><strong>Transliterasi:</strong> ${item.latin}</p>
+                        <p><strong>Terjemahan:</strong> ${item.translation}</p>
+                        <p><strong>Skor Kecocokan:</strong> ${item.score}</p>
+                    </div>`;
+            });
+        } else {
+            searchResultsHtml += "<p>Tidak ditemukan hasil yang cocok untuk kueri ini.</p>";
+        }
+
+        container.innerHTML = queryBoxHtml + searchResultsHtml;
+    }
+
+    // === Logika Pencarian Teks ===
+    async function searchText() {
+        const query = textQueryInput.value.trim();
+        if (!query) {
+            showError(textStatusEl, "Kolom pencarian tidak boleh kosong.");
+            return;
+        }
+
+        showLoading(textStatusEl, "Mencari...");
+        textSearchButton.disabled = true;
+
+        try {
+            const response = await fetch('/search_text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: query })
+            });
+
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error || `HTTP error! Status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            renderResults(data, resultsContainer);
+            clearStatus(textStatusEl);
+
+        } catch (error) {
+            console.error('Error saat pencarian teks:', error);
+            showError(textStatusEl, error.message);
+        } finally {
+            textSearchButton.disabled = false;
+        }
+    }
+    
+    // === Logika Perekaman Audio ===
+    async function startRecording() {
+        try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            isRecording = true;
+            recordButton.textContent = "Berhenti Merekam";
+            recordButton.classList.add('recording');
+            showLoading(statusEl, "Mendengarkan...");
+            audioChunks = [];
+            
+            mediaRecorder = new MediaRecorder(mediaStream);
+            mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+            mediaRecorder.onstop = sendAudioToServer;
+            mediaRecorder.start();
+
+        } catch (error) {
+            console.error("Error akses mikrofon:", error);
+            showError(statusEl, "Izin mikrofon ditolak atau tidak tersedia.");
+        }
+    }
+
+    function stopRecording() {
+        if (!mediaRecorder || !isRecording) return;
+        
+        isRecording = false;
+        recordButton.textContent = "Mulai Merekam";
+        recordButton.classList.remove('recording');
+        showLoading(statusEl, "Memproses audio...");
+        
+        mediaRecorder.stop();
+        mediaStream.getTracks().forEach(track => track.stop());
+    }
+
+    async function sendAudioToServer() {
+        if (audioChunks.length === 0) {
+             showError(statusEl, "Tidak ada suara yang direkam.");
+             return;
+        }
+
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('audio_data', audioBlob);
+
+        try {
+            const response = await fetch('/process_realtime_audio', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error || `HTTP error! Status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            renderResults(data, resultsContainer);
+            statusEl.textContent = "Status: Menunggu";
+
+        } catch(error) {
+            console.error('Error saat proses audio:', error);
+            showError(statusEl, error.message);
+        }
+    }
+
+    // === Event Listeners ===
+    textSearchButton.addEventListener('click', searchText);
+    textQueryInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault(); // Mencegah baris baru di textarea
+            searchText();
+        }
+    });
+    
+    recordButton.addEventListener('click', () => {
+        isRecording ? stopRecording() : startRecording();
+    });
+
+    </script>
+</body>
+</html>
